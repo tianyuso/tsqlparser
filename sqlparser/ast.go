@@ -950,11 +950,13 @@ type Constraint struct {
 
 func (node Constraint) String() string {
 	keys := []string{}
+	// fmt.Printf("`%s`", node.Name)
 	for _, key := range node.Keys {
 		keys = append(keys, fmt.Sprintf("`%v`", key))
 	}
 	name := ""
 	if node.Name != "" {
+		// fmt.Printf("`%s`", node.Name)
 		name = fmt.Sprintf("`%s`", node.Name)
 	}
 	return fmt.Sprintf("%s %s (%s)", node.Type.String(), name, strings.Join(keys, ", "))
@@ -2649,14 +2651,15 @@ func formatID(buf *TrackedBuffer, original, lowered string) {
 	return
 
 mustEscape:
-	buf.WriteByte('`')
+	// fmt.Printf("mustEscape: %s\n", original)
+	// buf.WriteByte('`')
 	for _, c := range original {
 		buf.WriteRune(c)
 		if c == '`' {
 			buf.WriteByte('`')
 		}
 	}
-	buf.WriteByte('`')
+	// buf.WriteByte('`')
 }
 
 func compliantName(in string) string {
