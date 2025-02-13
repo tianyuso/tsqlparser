@@ -353,6 +353,16 @@ func (tkn *Tokenizer) Scan() (int, []byte) {
 	tkn.skipBlank()
 	switch ch := tkn.lastChar; {
 	case isLetter(ch):
+		if ch == 'N' || ch == 'n' {
+			nextChar := tkn.peek()
+			if nextChar == '\'' || nextChar == '"' {
+				// Consume the 'N'
+				tkn.next()
+				delim := tkn.lastChar
+				tkn.next() // Consume the quote
+				return tkn.scanString(delim, STRING)
+			}
+		}
 		tkn.next()
 		if ch == 'X' || ch == 'x' {
 			if tkn.lastChar == '\'' {
@@ -546,6 +556,7 @@ func (tkn *Tokenizer) scanLiteralIdentifier() (int, []byte) {
 				break
 			}
 			backTickSeen = false
+			fmt.Printf("scanLiteralIdentifier: %s\n", buffer.String())
 			buffer.WriteByte('`')
 			tkn.next()
 			continue
@@ -723,6 +734,17 @@ func (tkn *Tokenizer) next() {
 		tkn.lastChar = uint16(ch)
 	}
 	tkn.Position++
+}
+func (tkn *Tokenizer) peek() uint16 {
+	if tkn.lastChar == eofChar {
+		return eofChar
+	}
+	ch, err := tkn.InStream.ReadByte()
+	if err != nil {
+		return eofChar
+	}
+	tkn.InStream.UnreadByte()
+	return uint16(ch)
 }
 
 func isLetter(ch uint16) bool {
