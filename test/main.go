@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"fmt"
@@ -13,16 +13,11 @@ type CTEInfo struct {
 	Query string
 }
 
-// TableInfo 表示表的信息
-type TableInfo struct {
-	Database string
-	Schema   string
-	Table    string
-	Alias    string
-}
+// 全局变量存储表信息
+var tableInfos []map[string]string
 
 // ParseAndProcessSQL 解析SQL语句并处理表信息
-func ParseAndProcessSQL(query string, tableInfos *[]TableInfo) error {
+func ParseAndProcessSQL(query string) error {
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
 		fmt.Println("Failed to parse SQL:", err)
@@ -33,9 +28,9 @@ func ParseAndProcessSQL(query string, tableInfos *[]TableInfo) error {
 	fmt.Printf("stmt: %+v\n", stmt)
 	switch stmtType := stmt.(type) {
 	case *sqlparser.Select:
-		ProcessSelectStatement(stmtType, tableInfos)
+		ProcessSelectStatement(stmtType)
 	case *sqlparser.Union:
-		ProcessSelectStatement(stmtType, tableInfos)
+		ProcessSelectStatement(stmtType)
 
 	default:
 		fmt.Println("Unsupported statement type")
@@ -44,11 +39,11 @@ func ParseAndProcessSQL(query string, tableInfos *[]TableInfo) error {
 }
 
 // CheckTable 解析SQL语句并返回表信息
-func CheckTable(sql string) []TableInfo {
+func CheckTable(sql string) []map[string]string {
 	// 初始化表信息切片
-	var tableInfos []TableInfo
+	tableInfos = make([]map[string]string, 0)
 
-	ctes, mainQuery, isCte, err := ParseCTEQuery(sql, &tableInfos)
+	ctes, mainQuery, isCte, err := ParseCTEQuery(sql)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return tableInfos
@@ -58,11 +53,11 @@ func CheckTable(sql string) []TableInfo {
 	if isCte {
 		for _, cte := range ctes {
 			fmt.Printf("\nCTE Name: %s\nCTE Query:\n%s\n", cte.Name, cte.Query)
-			ParseAndProcessSQL(cte.Query, &tableInfos)
+			ParseAndProcessSQL(cte.Query)
 		}
 		fmt.Printf("\nMain Query:%s\n", mainQuery)
 		// 解析主查询的表信息
-		err = ParseAndProcessSQL(mainQuery, &tableInfos)
+		err = ParseAndProcessSQL(mainQuery)
 		if err != nil {
 			return tableInfos
 		}
@@ -70,28 +65,10 @@ func CheckTable(sql string) []TableInfo {
 		mainQuery = sql
 		fmt.Printf("\n sql is not cte ,Query:%s\n", mainQuery)
 		// 解析主查询的表信息
-		err = ParseAndProcessSQL(mainQuery, &tableInfos)
+		err = ParseAndProcessSQL(mainQuery)
 		if err != nil {
 			return tableInfos
 		}
-	}
-
-	// 去除CTE的表信息
-	if isCte && len(ctes) > 0 {
-		// 创建CTE名称集合用于快速查找
-		cteNames := make(map[string]bool, len(ctes))
-		for _, cte := range ctes {
-			cteNames[cte.Name] = true
-		}
-
-		// 使用切片过滤，保留非CTE表
-		filtered := make([]TableInfo, 0, len(tableInfos))
-		for _, tableInfo := range tableInfos {
-			if !cteNames[tableInfo.Table] {
-				filtered = append(filtered, tableInfo)
-			}
-		}
-		tableInfos = filtered
 	}
 
 	// 输出收集到的所有表信息
@@ -99,15 +76,17 @@ func CheckTable(sql string) []TableInfo {
 	fmt.Printf("共找到 %d 个表:\n", len(tableInfos))
 	for i, tableInfo := range tableInfos {
 		fmt.Printf("表 %d: Database=%s, Schema=%s, Table=%s, Alias=%s\n",
-			i+1, tableInfo.Database, tableInfo.Schema, tableInfo.Table, tableInfo.Alias)
+			i+1, tableInfo["database"], tableInfo["schema"], tableInfo["table"], tableInfo["alias"])
 	}
 
 	return tableInfos
 }
 
-func ParseCTEQuery(sql string, tableInfos *[]TableInfo) (ctes []CTEInfo, mainQuery string, isCte bool, err error) {
+func ParseCTEQuery(sql string) (ctes []CTEInfo, mainQuery string, isCte bool, err error) {
 	var currentPos, startPos int
 	var currentCTE string
+
+	tableInfos = make([]map[string]string, 0)
 	sql = strings.TrimSpace(sql)
 	// Simplified regex pattern for CTEs
 	ctePattern := regexp.MustCompile(`(?is)([a-zA-Z0-9_]+)\s+AS\s*\(\s*(.*)\s*\)`)
@@ -172,59 +151,60 @@ func ParseCTEQuery(sql string, tableInfos *[]TableInfo) (ctes []CTEInfo, mainQue
 	return ctes, mainQuery, isCte, nil
 }
 
-func main() {
-	// 测试复杂的子查询
+func TestMain() {
+	// sql := `
+	// with
+	// c1 as
+	// (
+	//     select * from db1.dbo.table1  t1
+	//     inner join dbo.xx2 as x2 on x2.id= t1.xx2_id
+	//     where x2.name like 'abc%' and t1.id in (select id from dbo.table2
+	// 	where id > 20)
+	// ),
+	// ct2 as
+	// (
+	//     select * from dbo.table2 where id > 20
+	// ),
+	// cte3 as
+	// (
+	//     select * from db44..table3
+	//     left join table33  on table3.id = table33.t3_id
+	//     where price < 100
+	// )
+	// select a.id,b.name,c.order_id from c1 a, ct2 b, cte3 c where a.id = b.id and a.id = c.id
+	// union
+	// SELECT u.id, u.name, o.order_id
+	// FROM database1.schema1.users u
+	// 	LEFT JOIN schema2.orders o ON u.id = o.user_id
+	// WHERE u.age > 18
+	// 	AND u.id IN (
+	// 		SELECT user_id
+	// 		FROM database2.schema2.transactions
+	// 		WHERE amount > 100
+	// 	)
+	// UNION
+	// SELECT a.id, a.name, b.order_id
+	// FROM db2.schema3.account a
+	// 	INNER JOIN schema4.billing b ON a.id = b.account_id
+	// `
+	// sql := `
+	// select * from db1.dbo.table1  t1
+	//     inner join dbo.xx2 as x2 on x2.id= t1.xx2_id
+	//     where x2.name like 'abc%' and t1.id in (select id from dbo.table2
+	// 	where id > 20)
+	// // `
+	// sql := `
+	// select * from db1.dbo.table1  t1
+	//     inner join dbo.xx2 as x2 on x2.id= t1.xx2_id
+	//     where x2.name like 'abc%' and exists (select id from dbo.table2
+	// 	where id > 20 and id = t1.id)
+	// `
 	sql := `
-	with
-	c1 as
-	(
-	    select * from db1.dbo.table1  t1
+	select * from db1.dbo.table1  t1
 	    inner join dbo.xx2 as x2 on x2.id= t1.xx2_id
-	    where x2.name like 'abc%' and t1.id in (select id from dbo.table2
-		where id > 20)
-	),
-	ct2 as
-	(
-	    select * from dbo.table2 where id > 20
-	),
-	cte3 as
-	(
-	    select * from db44..table3
-	    left join table33  on table3.id = table33.t3_id
-	    where price < 100
-	)
-	select a.id,b.name,c.order_id from c1 a, ct2 b, cte3 c where a.id = b.id and a.id = c.id
-	union
-	SELECT u.id, u.name, o.order_id
-	FROM database1.schema1.users u
-		LEFT JOIN schema2.orders o ON u.id = o.user_id
-	WHERE u.age > 18
-		AND u.id IN (
-			SELECT user_id
-			FROM database2.schema2.transactions
-			WHERE amount > 100
-		)
-	UNION
-	SELECT a.id, a.name, b.order_id
-	FROM db2.schema3.account a
-		INNER JOIN schema4.billing b ON a.id = b.account_id 
-	union
-	SELECT u.id, u.name, o.order_id
-	FROM database1.schema1.users2 u
-		LEFT JOIN schema2.orders2 o ON u.id = o.user_id
-	WHERE u.age > 18
-		AND u.id IN (
-			SELECT user_id
-			FROM database2.schema2.transactions2
-			WHERE amount > 100
-		)
-		AND EXISTS (
-			SELECT 1 
-			FROM db3.schema3.products2 p
-			WHERE p.id = o.product_id
-		)
+	    where x2.name like 'abc%' and exists (select id from dbo.table2
+		where id > 20 and id = t1.id)
 	`
-
 	// 调用CheckTable函数解析SQL并获取表信息
 	result := CheckTable(sql)
 
@@ -235,7 +215,7 @@ func main() {
 }
 
 // ProcessTableExpr 解析表表达式，提取库名、模式名、表名和别名
-func ProcessTableExpr(tableExpr sqlparser.TableExpr, tableInfos *[]TableInfo) {
+func ProcessTableExpr(tableExpr sqlparser.TableExpr) {
 	switch table := tableExpr.(type) {
 	case *sqlparser.AliasedTableExpr:
 		switch expr := table.Expr.(type) {
@@ -243,50 +223,51 @@ func ProcessTableExpr(tableExpr sqlparser.TableExpr, tableInfos *[]TableInfo) {
 			databaseName := "None"
 			schemaName := "None"
 
-			tableName := expr.Name.String()
-			dblist := strings.Split(tableName, ".")
-			if len(dblist) == 3 {
-				databaseName = dblist[0]
-				schemaName = dblist[1]
-				tableName = dblist[2]
-			} else if len(dblist) == 2 {
-				schemaName = dblist[0]
-				tableName = dblist[1]
-			} else {
-				tableName = dblist[0]
+			// 处理完整的表名（可能包含数据库和模式）
+			if !expr.Qualifier.IsEmpty() {
+				if !expr.Schema.IsEmpty() {
+					// database.schema.table 格式
+					databaseName = expr.Qualifier.String()
+					schemaName = expr.Schema.String()
+				} else {
+					// database.table 或 schema.table 格式
+					schemaName = expr.Qualifier.String()
+				}
 			}
+
+			tableName := expr.Name.String()
 			alias := table.As.String()
 			if alias == "" {
 				alias = tableName
 			}
 
 			// 将表信息添加到切片中
-			tableInfo := TableInfo{
-				Database: databaseName,
-				Schema:   schemaName,
-				Table:    tableName,
-				Alias:    alias,
+			tableInfo := map[string]string{
+				"database": databaseName,
+				"schema":   schemaName,
+				"table":    tableName,
+				"alias":    alias,
 			}
-			*tableInfos = append(*tableInfos, tableInfo)
+			tableInfos = append(tableInfos, tableInfo)
 		case *sqlparser.Subquery:
 			// 处理子查询作为表的情况
-			ProcessSelectStatement(expr.Select, tableInfos)
+			ProcessSelectStatement(expr.Select)
 		}
 
 	case *sqlparser.JoinTableExpr:
 		// 对 JOIN 左右两边的表进行递归处理
-		ProcessTableExpr(table.LeftExpr, tableInfos)
-		ProcessTableExpr(table.RightExpr, tableInfos)
+		ProcessTableExpr(table.LeftExpr)
+		ProcessTableExpr(table.RightExpr)
 
 		// 处理 JOIN 条件中的子查询
 		if table.On != nil {
-			ProcessExpr(table.On, tableInfos)
+			ProcessExpr(table.On)
 		}
 
 	case *sqlparser.ParenTableExpr:
 		// 对括号中的表表达式进行递归处理
 		for _, expr := range table.Exprs {
-			ProcessTableExpr(expr, tableInfos)
+			ProcessTableExpr(expr)
 		}
 
 	default:
@@ -295,7 +276,7 @@ func ProcessTableExpr(tableExpr sqlparser.TableExpr, tableInfos *[]TableInfo) {
 }
 
 // ProcessExpr 递归处理表达式中的子查询
-func ProcessExpr(expr sqlparser.Expr, tableInfos *[]TableInfo) {
+func ProcessExpr(expr sqlparser.Expr) {
 	if expr == nil {
 		return
 	}
@@ -303,106 +284,106 @@ func ProcessExpr(expr sqlparser.Expr, tableInfos *[]TableInfo) {
 	switch e := expr.(type) {
 	case *sqlparser.Subquery:
 		// 处理子查询
-		ProcessSelectStatement(e.Select, tableInfos)
+		ProcessSelectStatement(e.Select)
 	case *sqlparser.ComparisonExpr:
 		// 处理比较表达式（如 IN, EXISTS 等）
-		ProcessExpr(e.Left, tableInfos)
-		ProcessExpr(e.Right, tableInfos)
+		ProcessExpr(e.Left)
+		ProcessExpr(e.Right)
 	case *sqlparser.ExistsExpr:
 		// 处理 EXISTS 子查询
 		if e.Subquery != nil {
-			ProcessSelectStatement(e.Subquery.Select, tableInfos)
+			ProcessSelectStatement(e.Subquery.Select)
 		}
 	case *sqlparser.AndExpr:
 		// 处理 AND 表达式
-		ProcessExpr(e.Left, tableInfos)
-		ProcessExpr(e.Right, tableInfos)
+		ProcessExpr(e.Left)
+		ProcessExpr(e.Right)
 	case *sqlparser.OrExpr:
 		// 处理 OR 表达式
-		ProcessExpr(e.Left, tableInfos)
-		ProcessExpr(e.Right, tableInfos)
+		ProcessExpr(e.Left)
+		ProcessExpr(e.Right)
 	case *sqlparser.NotExpr:
 		// 处理 NOT 表达式
-		ProcessExpr(e.Expr, tableInfos)
+		ProcessExpr(e.Expr)
 	case *sqlparser.ParenExpr:
 		// 处理括号表达式
-		ProcessExpr(e.Expr, tableInfos)
+		ProcessExpr(e.Expr)
 	case *sqlparser.RangeCond:
 		// 处理 BETWEEN 条件
-		ProcessExpr(e.Left, tableInfos)
-		ProcessExpr(e.From, tableInfos)
-		ProcessExpr(e.To, tableInfos)
+		ProcessExpr(e.Left)
+		ProcessExpr(e.From)
+		ProcessExpr(e.To)
 	case *sqlparser.IsExpr:
 		// 处理 IS 表达式
-		ProcessExpr(e.Expr, tableInfos)
+		ProcessExpr(e.Expr)
 	case *sqlparser.FuncExpr:
 		// 处理函数表达式中的子查询
 		for _, selectExpr := range e.Exprs {
 			if aliasedExpr, ok := selectExpr.(*sqlparser.AliasedExpr); ok {
-				ProcessExpr(aliasedExpr.Expr, tableInfos)
+				ProcessExpr(aliasedExpr.Expr)
 			}
 		}
 	case *sqlparser.CaseExpr:
 		// 处理 CASE 表达式
-		ProcessExpr(e.Expr, tableInfos)
+		ProcessExpr(e.Expr)
 		for _, when := range e.Whens {
-			ProcessExpr(when.Cond, tableInfos)
-			ProcessExpr(when.Val, tableInfos)
+			ProcessExpr(when.Cond)
+			ProcessExpr(when.Val)
 		}
-		ProcessExpr(e.Else, tableInfos)
+		ProcessExpr(e.Else)
 	case sqlparser.ValTuple:
 		// 处理值元组中的表达式
 		for _, val := range e {
-			ProcessExpr(val, tableInfos)
+			ProcessExpr(val)
 		}
 	}
 }
 
 // ProcessSelectStatement 递归解析 SELECT 语句
-func ProcessSelectStatement(stmt sqlparser.SelectStatement, tableInfos *[]TableInfo) {
+func ProcessSelectStatement(stmt sqlparser.SelectStatement) {
 	switch selectStmt := stmt.(type) {
 	case *sqlparser.Select:
 		// 处理 FROM 子句
 		for _, tableExpr := range selectStmt.From {
-			ProcessTableExpr(tableExpr, tableInfos)
+			ProcessTableExpr(tableExpr)
 		}
 
 		// 处理 SELECT 表达式中的子查询
 		for _, selectExpr := range selectStmt.SelectExprs {
 			switch expr := selectExpr.(type) {
 			case *sqlparser.AliasedExpr:
-				ProcessExpr(expr.Expr, tableInfos)
+				ProcessExpr(expr.Expr)
 			}
 		}
 
 		// 处理 WHERE 子句中的子查询
 		if selectStmt.Where != nil {
-			ProcessExpr(selectStmt.Where.Expr, tableInfos)
+			ProcessExpr(selectStmt.Where.Expr)
 		}
 
 		// 处理 HAVING 子句中的子查询
 		if selectStmt.Having != nil {
-			ProcessExpr(selectStmt.Having.Expr, tableInfos)
+			ProcessExpr(selectStmt.Having.Expr)
 		}
 
 		// 处理 GROUP BY 中的子查询
 		for _, groupExpr := range selectStmt.GroupBy {
-			ProcessExpr(groupExpr, tableInfos)
+			ProcessExpr(groupExpr)
 		}
 
 		// 处理 ORDER BY 中的子查询
 		for _, orderExpr := range selectStmt.OrderBy {
-			ProcessExpr(orderExpr.Expr, tableInfos)
+			ProcessExpr(orderExpr.Expr)
 		}
 
 	case *sqlparser.Union:
 		// 处理 UNION 左右两边的查询
-		ProcessSelectStatement(selectStmt.Left, tableInfos)
-		ProcessSelectStatement(selectStmt.Right, tableInfos)
+		ProcessSelectStatement(selectStmt.Left)
+		ProcessSelectStatement(selectStmt.Right)
 
 	case *sqlparser.ParenSelect:
 		// 处理括号中的 SELECT 语句
-		ProcessSelectStatement(selectStmt.Select, tableInfos)
+		ProcessSelectStatement(selectStmt.Select)
 
 	default:
 		fmt.Println("Unknown select statement")

@@ -64,6 +64,7 @@ var keywords = map[string]int{
 	"against":             AGAINST,
 	"all":                 ALL,
 	"alter":               ALTER,
+	"any":                 ANY,
 	"analyze":             ANALYZE,
 	"and":                 AND,
 	"as":                  AS,

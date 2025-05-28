@@ -1548,6 +1548,8 @@ const (
 	NotLikeStr           = "not like"
 	RegexpStr            = "regexp"
 	NotRegexpStr         = "not regexp"
+	AnyStr               = "any"
+	AllStr               = "all"
 	JSONExtractOp        = "->"
 	JSONUnquoteExtractOp = "->>"
 )

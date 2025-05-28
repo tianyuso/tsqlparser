@@ -88,7 +88,7 @@ func forceEOF(yylex interface{}) {
 %token LEX_ERROR
 %left <bytes> UNION
 %token <bytes> SELECT INSERT UPDATE DELETE FROM WHERE GROUP HAVING ORDER BY LIMIT OFFSET FOR
-%token <bytes> ALL DISTINCT AS EXISTS ASC DESC INTO DUPLICATE KEY DEFAULT SET LOCK
+%token <bytes> ALL ANY DISTINCT AS EXISTS ASC DESC INTO DUPLICATE KEY DEFAULT SET LOCK
 %token <bytes> VALUES LAST_INSERT_ID
 %token <bytes> NEXT VALUE SHARE MODE
 %token <bytes> SQL_NO_CACHE SQL_CACHE
@@ -772,6 +772,10 @@ table_name:
   {
     $$ = TableName{Qualifier: $1, Name: $3}
   }
+| table_id '.' reserved_table_id '.' reserved_table_id
+  {
+    $$ = TableName{Qualifier: $1, Schema: $3, Name: $5}
+  }
 
 index_hint_list:
   {
@@ -889,6 +893,14 @@ condition:
 | EXISTS subquery
   {
     $$ = &ExistsExpr{Subquery: $2}
+  }
+| value_expression compare ANY subquery
+  {
+    $$ = &ComparisonExpr{Left: $1, Operator: $2 + " " + AnyStr, Right: $4}
+  }
+| value_expression compare ALL subquery
+  {
+    $$ = &ComparisonExpr{Left: $1, Operator: $2 + " " + AllStr, Right: $4}
   }
 
 is_suffix:
@@ -1726,7 +1738,9 @@ reserved_table_id:
   Sorted alphabetically
 */
 reserved_keyword:
-  AND
+  ALL
+| AND
+| ANY
 | AS
 | ASC
 | BETWEEN
