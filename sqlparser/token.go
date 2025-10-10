@@ -492,6 +492,19 @@ func (tkn *Tokenizer) scanIdentifier(firstByte byte) (int, []byte) {
 	buffer := &bytes2.Buffer{}
 	buffer.WriteByte(firstByte)
 	for isLetter(tkn.lastChar) || isDigit(tkn.lastChar) || tkn.lastChar == '.' {
+		// 特殊处理：如果当前字符是点号，先看看下一个字符
+		if tkn.lastChar == '.' {
+			// 预读下一个字符
+			nextChar, _, err := tkn.InStream.ReadRune()
+			if err == nil {
+				// 回退一个字符
+				tkn.InStream.UnreadRune()
+				if nextChar == '*' {
+					// 如果点号后面是星号，不将点号包含在标识符中
+					break
+				}
+			}
+		}
 		buffer.WriteByte(byte(tkn.lastChar))
 		tkn.next()
 	}
